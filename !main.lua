@@ -586,30 +586,7 @@ local function AllInOneOptimize()
         end
     end
 end
-local Players = game:GetService("Players")
-local StarterGui = game:GetService("StarterGui")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local LocalPlayer = Players.LocalPlayer
-
--- Nếu bạn cần Data để sau này update
-
---== Services ==--
-local Players = game:GetService("Players")
-local StarterGui = game:GetService("StarterGui")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
---== Player ==--
-local LocalPlayer = Players.LocalPlayer
-local Backpack = LocalPlayer:WaitForChild("Backpack")
-
---== Data ==--
-local data = require(ReplicatedStorage.PlayerData):GetData().Data
-
---== Rarity Order ==--
-local rarityOrder = {
-    Common = 1, Uncommon = 2, Rare = 3, Epic = 4,
-    Legendary = 5, Mythic = 6, Godly = 7, Secret = 8
-}
+AllInOneOptimize()
 
 --== UI Setup ==--
 local function setupSimpleUI()
