@@ -1,3 +1,4 @@
+
 getgenv().Config = {
     Lock = { "Legendary", "Mythic", "Godly", "Secret" } -- giữ lại mấy con này (theo rarity)
 }
