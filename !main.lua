@@ -743,7 +743,7 @@ local function setupSimpleUI()
         end
     end)
 end
-
+setupSimpleUI()
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
