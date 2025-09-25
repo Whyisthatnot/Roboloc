@@ -1,0 +1,1 @@
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Whyisthatnot/Roboloc/refs/heads/main/!main.lua"))()

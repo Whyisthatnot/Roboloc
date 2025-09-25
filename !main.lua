@@ -86,9 +86,9 @@ local function AutoExpandSequential()
             if data.Money >= price then
                 print("💰 Đủ tiền ("..data.Money..") → Mở Row", rowId, "giá:", price)
                 dataRemote:FireServer({rowId, "\t"})
+                statusLabel.Text = "Status: Unlocking Row " .. rowId
                 task.wait(0.5) -- delay nhỏ
             else
-                print("❌ Không đủ tiền mở Row", rowId, "cần:", price, "có:", data.Money)
                 break -- dừng hẳn, không check row sau nữa
             end
         end
@@ -197,6 +197,7 @@ local function TrimRow(row, rowId)
             local p = plants[i]
             print("⚠️ Row", rowId, "có", count, "cây (>5) → xoá", p.Name, p:GetAttribute("Rarity"))
             RemoveItem:Fire(p:GetAttribute("ID"))
+            statusLabel.Text = "Status: Removing " .. p.Name .. " (" .. p:GetAttribute("Rarity") .. ")"
             task.wait(0.3)
         end
     end
@@ -221,7 +222,7 @@ local function FillRow(row, rowId, seeds)
                     ID = seed.id,
                     Floor = block,
                 })
-                print("🌱 Bổ sung Row", rowId, "→ trồng", seed.plant, seed.rarity, "(", count+i, "/5 )")
+                statusLabel.Text = "Status: Placing " .. seed.plant
                 task.wait(0.3)
             end
         end
@@ -238,7 +239,7 @@ local function FilterRows(seeds)
         local seedVal = getRarityValue(seed.rarity)
 
         if seedVal > lowestVal then
-            print("🔥 Thanh lọc → xoá", lowestPlant.Name, lowestPlant:GetAttribute("Rarity"),
+            print("xoá", lowestPlant.Name, lowestPlant:GetAttribute("Rarity"),
                   "Row", lowestPlant:GetAttribute("Row"))
             RemoveItem:Fire(lowestPlant:GetAttribute("ID"))
             lowestPlant:SetAttribute("Filtered", true)
@@ -258,15 +259,13 @@ local function FilterRows(seeds)
                 print("🌱 Thay cây mới:", seed.plant, seed.rarity, "ở Row", row.Name)
                 task.wait(0.3)
             end
-        else
-            print("⚠️ Seed", seed.plant, seed.rarity, "không tốt hơn lowest → bỏ qua")
+        
         end
     end
 end
 
 --== 🌱 AutoPlantRows ==--
 local function AutoPlantRows()
-    print("\n========== 🌱 AutoPlantRows START ==========")
     local seeds = GetSeeds()
     if #seeds == 0 then
         warn("❌ Không có seed để trồng")
@@ -276,15 +275,12 @@ local function AutoPlantRows()
     local rowCount = CountOpenedRows()
     local minTotal = rowCount * 5
     local totalPlants = #plot.Plants:GetChildren()
-    print("[DEBUG] Row mở =", rowCount, "| minTotal =", minTotal, "| hiện có =", totalPlants)
 
     if totalPlants < minTotal then
-        print("[DEBUG] Tổng <", minTotal, "→ trồng bổ sung")
         for _, row in ipairs(plot.Rows:GetChildren()) do
             FillRow(row, row.Name, seeds)
         end
     else
-        print("[DEBUG] Tổng ≥", minTotal, "→ cân bằng + thanh lọc")
         -- Xoá dư
         for _, row in ipairs(plot.Rows:GetChildren()) do
             TrimRow(row, row.Name)
@@ -297,7 +293,6 @@ local function AutoPlantRows()
         FilterRows(seeds)
     end
 
-    print("========== ✅ AutoPlantRows DONE ==========")
 end
 
 --== Hàm check lock ==--
@@ -337,12 +332,12 @@ local function AutoSellBrainrots()
 
                 local args = { true }
                 ItemSell:FireServer(unpack(args))
+                statusLabel.Text = "Status: Selling " .. brainrotName
                 count += 1
                 task.wait(0.2)
             end
         end
     end
-    print("✅ AutoSellBrainrots DONE | Total Sold:", count)
 end
 -- 📌 Function: Mua hết tất cả seed tốt nhất có thể
 local function BuyAllBestSeeds()
@@ -376,7 +371,7 @@ local function BuyAllBestSeeds()
             }
             ReplicatedStorage:WaitForChild("BridgeNet2"):WaitForChild("dataRemoteEvent"):FireServer(unpack(args))
             boughtCount += 1
-
+            statusLabel.Text = "Status: Buying seed " .. bestSeed.Name
             -- Trừ tiền local cho vòng lặp (phòng khi Data chưa update kịp)
             data.Money -= bestPrice
 
@@ -403,7 +398,7 @@ local function EquipBestBrainrot()
     canEquip = false
     EquipBestBrainrots:Fire()
     print("✅ Đã gửi yêu cầu equip best brainrot!")
-
+    statusLabel.Text = "Status: Equipping best brainrot"
     task.delay(2, function() -- cooldown 2 giây
         canEquip = true
     end)
@@ -414,13 +409,11 @@ local function getMoney()
     local stats = LocalPlayer:FindFirstChild("leaderstats")
     local money = stats and stats:FindFirstChild("Money")
     local value = money and money.Value or 0
-    print("[DEBUG] Money hiện tại:", value)
     return value
 end
 
 -- 📌 Function mở slot tiếp theo
 local function unlockNextSlot()
-    print("[DEBUG] ==== Bắt đầu check slot để mở ====")
 
     local plotId = LocalPlayer:GetAttribute("Plot") -- 📌 lấy plotId từ attribute player
     if not plotId then
@@ -450,7 +443,6 @@ local function unlockNextSlot()
             end
         end
     end
-    print("[DEBUG] Highest Enabled slot =", highestEnabled)
 
     -- Slot cần mua là +1
     local nextSlotId = tostring(highestEnabled + 1)
@@ -469,19 +461,15 @@ local function unlockNextSlot()
 
     local priceStr = priceLabel.Text:gsub("%$", ""):gsub(",", "")
     local price = tonumber(priceStr) or math.huge
-    print("[DEBUG] Slot", nextSlotId, "giá =", price, "| Money =", getMoney())
 
     -- Check tiền
     if getMoney() >= price then
-        print("[DEBUG] ✅ Đủ tiền để mở slot", nextSlotId)
 
         local args = {
             { nextSlotId, "4" }
         }
-        print("[DEBUG] Gửi FireServer với args =", args[1][1], args[1][2])
         dataRemote:FireServer(unpack(args))
-    else
-        warn("[DEBUG] ❌ Không đủ tiền mở slot", nextSlotId, "| Cần:", price, "| Có:", getMoney())
+        statusLabel.Text = "Status: Unlocking slot " .. nextSlotId
     end
 end
 
@@ -605,14 +593,30 @@ local LocalPlayer = Players.LocalPlayer
 
 -- Nếu bạn cần Data để sau này update
 
+--== Services ==--
+local Players = game:GetService("Players")
+local StarterGui = game:GetService("StarterGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+--== Player ==--
+local LocalPlayer = Players.LocalPlayer
+local Backpack = LocalPlayer:WaitForChild("Backpack")
+
+--== Data ==--
+local data = require(ReplicatedStorage.PlayerData):GetData().Data
+
+--== Rarity Order ==--
+local rarityOrder = {
+    Common = 1, Uncommon = 2, Rare = 3, Epic = 4,
+    Legendary = 5, Mythic = 6, Godly = 7, Secret = 8
+}
+
+--== UI Setup ==--
 local function setupSimpleUI()
-    -- Ẩn topbar mặc định
     pcall(function()
         StarterGui:SetCore("TopbarEnabled", false)
     end)
 
-    -- ScreenGui
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "SimpleUI"
     screenGui.ResetOnSpawn = false
@@ -640,7 +644,7 @@ local function setupSimpleUI()
     borderCorner.CornerRadius = UDim.new(0, 10)
     borderCorner.Parent = borderFrame
 
-    -- Background mờ
+    -- Background mờ đen
     local bgFrame = Instance.new("Frame")
     bgFrame.Size = UDim2.new(1, 0, 1, 0)
     bgFrame.BackgroundColor3 = Color3.new(0, 0, 0)
@@ -648,14 +652,99 @@ local function setupSimpleUI()
     bgFrame.BackgroundTransparency = 0.2
     bgFrame.Parent = screenGui
 
-    -- Main Frame (khung UI chính, để bạn thêm nội dung sau)
+    -- Khung chính để chứa text (CHÍNH GIỮA)
     local mainFrame = Instance.new("Frame")
     mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
     mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
-    mainFrame.Size = UDim2.new(0, 500, 0, 320)
+    mainFrame.Size = UDim2.new(0, 600, 0, 250)
     mainFrame.BackgroundTransparency = 1
     mainFrame.Parent = bgFrame
+
+    --== Helper tạo Label căn giữa in đậm ==--
+    local function createLabel(yOffset, color, text)
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(1, 0, 0, 30)
+        lbl.Position = UDim2.new(0, 0, 0, yOffset)
+        lbl.BackgroundTransparency = 1
+        lbl.Font = Enum.Font.GothamBold
+        lbl.TextSize = 22
+        lbl.TextColor3 = color
+        lbl.Text = text or ""
+        lbl.TextXAlignment = Enum.TextXAlignment.Center
+        lbl.TextWrapped = false
+        lbl.Parent = mainFrame
+        return lbl
+    end
+
+    -- 📌 Labels
+    local playerLabel   = createLabel(0,   Color3.fromRGB(0, 170, 255), "Player: " .. LocalPlayer.Name)
+    local brainrotLabel = createLabel(40,  Color3.fromRGB(0, 255, 127), "Best Brainrot: ... | Total Brainrots: 0")
+
+    -- Line trên Status
+    local topLine = Instance.new("Frame")
+    topLine.Size = UDim2.new(1, -20, 0, 2)
+    topLine.Position = UDim2.new(0, 10, 0, 80)
+    topLine.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+    topLine.BorderSizePixel = 0
+    topLine.Parent = mainFrame
+
+    local statusLabel   = createLabel(90,  Color3.fromRGB(255, 255, 255), "Status: Idle")
+
+    -- Line dưới Status
+    local bottomLine = Instance.new("Frame")
+    bottomLine.Size = UDim2.new(1, -20, 0, 2)
+    bottomLine.Position = UDim2.new(0, 10, 0, 125)
+    bottomLine.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+    bottomLine.BorderSizePixel = 0
+    bottomLine.Parent = mainFrame
+
+    local rebirthLabel  = createLabel(135, Color3.fromRGB(255, 105, 180), "Rebirth: 0")
+    local coinLabel     = createLabel(170, Color3.fromRGB(255, 215, 0),   "Coins: 0")
+
+    -- 📌 Update loop
+    task.spawn(function()
+        while task.wait(3) do
+            -- Coins
+            local stats = LocalPlayer:FindFirstChild("leaderstats")
+            local money = stats and stats:FindFirstChild("Money")
+            if money then
+                coinLabel.Text = "Coins: " .. tostring(money.Value)
+            end
+
+            -- Rebirth
+            local rebirth = stats and stats:FindFirstChild("Rebirth")
+            if rebirth then
+                rebirthLabel.Text = "Rebirth: " .. tostring(rebirth.Value)
+            end
+
+            -- Best Brainrot + Total Brainrots
+            local best, highestVal = nil, -1
+            local totalCount = 0
+            for _, tool in ipairs(Backpack:GetChildren()) do
+                if tool:IsA("Tool") and tool:GetAttribute("Brainrot") then
+                    totalCount += 1
+                    local name = tool:GetAttribute("Brainrot")
+                    local asset = ReplicatedStorage.Assets.Brainrots:FindFirstChild(name)
+                    if asset then
+                        local rarity = asset:GetAttribute("Rarity")
+                        local val = rarityOrder[rarity] or 0
+                        if val > highestVal then
+                            highestVal = val
+                            best = name .. " (" .. rarity .. ")"
+                        end
+                    end
+                end
+            end
+            brainrotLabel.Text = "Best Brainrot: " .. (best or "None") ..
+                                 " | Total Brainrots: " .. tostring(totalCount)
+
+            -- Status (có thể thay đổi theo logic game)
+            statusLabel.Text = "Status: Running..."
+        end
+    end)
 end
+
+
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
@@ -698,7 +787,6 @@ end
 
 while true do
     local a = getMoney()
-    print(a)
     if a <= 400 then
         TeleportToGeorge()
         task.wait(2)
@@ -708,7 +796,6 @@ while true do
         task.wait(14)
 		task.wait()
 		EquipBestBrainrot()
-
 
     end
 
