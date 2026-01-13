@@ -1,1 +1,512 @@
+setfpscap(5)
+getgenv().config = {
+    AutoCollect = false,
+    Mode = "BattlePass", -- Chế độ: "BattlePass" hoặc "Crate"
+}
 
+local Players = game:GetService('Players')
+local LocalPlayer = Players.LocalPlayer
+local IsCollecting = false
+local ReplicatedStorage = game:GetService('ReplicatedStorage')
+local startTime = os.time()
+local initialCoinAmount = 0
+local EventInfoService = require(ReplicatedStorage:WaitForChild('SharedServices'):WaitForChild('EventInfoService')):WaitForInitializedAsync()
+local ProfileData = require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('ProfileData'))
+local event = EventInfoService:GetMainEvent()
+local currencyName = event.EventStartInfo.CurrencyName
+local eventTitle = event.Title
+local ScreenGui = Instance.new('ScreenGui')
+local noclip = true -- Đổi thành false nếu muốn mặc định tắt
+
+getgenv().config = getgenv().config or {}
+-- Gộp tất cả vào 1 dòng an toàn
+task.spawn(function()
+    local PhoneButton = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("DeviceSelect", 10) and game:GetService("Players").LocalPlayer.PlayerGui.DeviceSelect:WaitForChild("Container", 5):WaitForChild("Phone", 5):WaitForChild("Button", 5)
+
+    if PhoneButton then
+        for _, connection in pairs(getconnections(PhoneButton.MouseButton1Click)) do
+            connection:Fire()
+        end
+        print("✅ Đã ấn vào nút Phone")
+    else
+        warn("⚠️ Không tìm thấy nút Phone sau thời gian chờ!")
+    end
+end)
+-- Thay vì gắn vào PlayerGui, ta gắn vào CoreGui (nơi chứa menu Esc)
+local CoreGui = game:GetService("CoreGui")
+
+
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.DisplayOrder = 2147483647
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Name = 'UltraTopOverlay'
+ScreenGui.Parent = LocalPlayer:WaitForChild('PlayerGui')
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.DisplayOrder = 2147483647 -- Đây là mức ưu tiên cao nhất trong Roblox
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global -- Giúp quản lý thứ tự các thành phần con tốt hơn
+ScreenGui.ResetOnSpawn = false
+
+-- Thử dùng gethui() nếu executor của bạn hỗ trợ (giúp ẩn script khỏi tool quét UI)
+-- Nếu không thì dùng CoreGui
+if gethui then
+    ScreenGui.Parent = gethui()
+else
+    ScreenGui.Parent = CoreGui
+end
+local Background = Instance.new('Frame')
+
+Background.Size = UDim2.new(1, 0, 1, 0)
+Background.BackgroundColor3 = Color3.new(0, 0, 0)
+Background.BackgroundTransparency = 0.5
+Background.Parent = ScreenGui
+
+local MainFrame = Instance.new('Frame')
+
+MainFrame.Size = UDim2.new(1, 0, 0.8, 0)
+MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+MainFrame.BackgroundTransparency = 1
+MainFrame.Parent = Background
+
+local Layout = Instance.new('UIListLayout')
+
+Layout.Parent = MainFrame
+Layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+Layout.VerticalAlignment = Enum.VerticalAlignment.Center
+Layout.SortOrder = Enum.SortOrder.LayoutOrder
+Layout.Padding = UDim.new(0, 12)
+
+local function createSuperLabel(name, text, color, size, order)
+    local label = Instance.new('TextLabel')
+
+    label.Name = name
+    label.Text = text
+    label.TextColor3 = color
+    label.TextSize = size
+    label.Font = Enum.Font.LuckiestGuy
+    label.BackgroundTransparency = 1
+    label.Size = UDim2.new(1, 0, 0, size + 20)
+    label.LayoutOrder = order
+
+    local UIStroke = Instance.new('UIStroke')
+
+    UIStroke.Thickness = 4
+    UIStroke.Color = Color3.new(0, 0, 0)
+    UIStroke.Parent = label
+    label.Parent = MainFrame
+
+    return label
+end
+local UserLabel = createSuperLabel('UserLabel', '' .. LocalPlayer.Name:upper(), Color3.new(1, 1, 1), 60, 1)
+local CoinLabel = createSuperLabel('CoinLabel', 'LOADING...', Color3.fromRGB(255, 235, 59), 45, 2)
+local RateLabel = createSuperLabel('RateLabel', 'COIN/M: 0', Color3.fromRGB(144, 238, 144), 30, 7)
+local ModeLabel = createSuperLabel('ModeLabel', 'MODE: ' .. getgenv().config.Mode:upper(), Color3.fromRGB(0, 255, 255), 40, 3)
+local BPLabel = createSuperLabel('BPLabel', 'LEVEL: --', Color3.fromRGB(0, 229, 255), 40, 5)
+local TimeLabel = createSuperLabel('TimeLabel', '00:00:00', Color3.fromRGB(200, 200, 200), 30, 6)
+local function formatTime(seconds)
+    local hours = math.floor(seconds / 3600)
+    local mins = math.floor((seconds % 3600) / 60)
+    local secs = seconds % 60
+
+    return string.format('%02d:%02d:%02d', hours, mins, secs)
+end
+
+-- Tìm đoạn này ở gần đầu script và thay thế
+local totalEarnedEver = 0 
+local isFirstRun = true -- Biến quan trọng để chặn cộng dồn số dư cũ
+
+local function updateUI()
+    local LiveProfile = require(ReplicatedStorage.Modules.ProfileData)
+
+    local currentAmount = ProfileData.Materials.Owned[currencyName] or 0
+    local elapsed = os.time() - startTime
+    CoinLabel.Text = string.format("COIN: %d (+%d)", currentAmount, totalEarnedEver)
+
+    local bpData = LiveProfile[eventTitle]
+    if bpData then
+        BPLabel.Text = 'BATTLE PASS LEVEL: ' .. (bpData.CurrentTier or 0)
+    end
+    if elapsed > 0 then
+        -- Formula: (Total Earned / Elapsed Seconds) * 60
+        local coinsPerMinute = math.floor((totalEarnedEver / elapsed) * 60)
+        RateLabel.Text = string.format("COIN/M: %d", coinsPerMinute)
+    else
+        RateLabel.Text = "COIN/M: 0"
+    end
+end
+
+initialCoinAmount = ProfileData.Materials.Owned[currencyName] or 0
+
+updateUI()
+task.spawn(function()
+    while true do
+        local elapsed = os.time() - startTime
+
+        TimeLabel.Text = 'TIME ELAPSED: ' .. formatTime(elapsed)
+
+        updateUI()
+        task.wait(1)
+    end
+end)
+
+
+local SAFE_PLAYER_DISTANCE = 15
+local SAFE_HEIGHT = 1500
+
+task.spawn(function()
+    local VI = game:GetService('VirtualInputManager')
+
+    while true do
+        VI:SendKeyEvent(true, Enum.KeyCode.P, false, game)
+        task.wait(2)
+        VI:SendKeyEvent(false, Enum.KeyCode.P, false, game)
+        task.wait(60)
+    end
+end)
+
+local function isBagFullUI()
+    local ok, res = pcall(function()
+        return LocalPlayer.PlayerGui.MainGUI.Game.CoinBags.Container.SnowToken.Full.Visible
+    end)
+
+    return ok and res == true
+end
+local function isCoinSafe(coin)
+    if not coin or not coin.Parent or not coin:IsA('BasePart') then
+        return false
+    end
+    if coin:GetAttribute('Collected') then
+        return false
+    end
+
+    for _, plr in ipairs(Players:GetPlayers())do
+        if plr ~= LocalPlayer and plr.Character then
+            local hrp = plr.Character:FindFirstChild('HumanoidRootPart')
+
+            if hrp then
+                if (hrp.Position - coin.Position).Magnitude <= SAFE_PLAYER_DISTANCE then
+                    return false
+                end
+            end
+        end
+    end
+
+    return true
+end
+local function getNearestSafeCoin()
+    local container = workspace:FindFirstChild('CoinContainer', true)
+
+    if not container then
+        return nil
+    end
+
+    local closest, dist = nil, math.huge
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+
+    if not hrp then
+        return nil
+    end
+
+    for _, coin in ipairs(container:GetChildren())do
+        if isCoinSafe(coin) then
+            local d = (hrp.Position - coin.Position).Magnitude
+
+            if d < dist then
+                dist = d
+                closest = coin
+            end
+        end
+    end
+
+    return closest
+end
+local function teleportTo(coin)
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild('HumanoidRootPart')
+
+    if not hrp or not coin or not coin.Parent then
+        return
+    end
+
+    IsCollecting = true
+    hrp.Anchored = false
+    hrp.CFrame = coin.CFrame
+
+    firetouchinterest(hrp, coin, 0)
+    task.wait(0.6)
+    pcall(function()
+        firetouchinterest(hrp, coin, 1)
+    end)
+
+    hrp.CFrame = CFrame.new(hrp.Position.X, SAFE_HEIGHT, hrp.Position.Z)
+    hrp.Anchored = true
+
+    task.wait(1.9)
+
+    IsCollecting = false
+end
+
+
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+
+        if getgenv().config.AutoCollect then
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild('HumanoidRootPart')
+
+            if hrp and not IsCollecting then
+                if isBagFullUI() then
+                    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                        LocalPlayer.Character.Humanoid.Health = 0
+                    end
+
+                    -- 2. Đợi nhân vật mới load hoàn toàn (Không dùng ChildAdded:Wait vì dễ treo)
+                    local newChar = LocalPlayer.CharacterAdded:Wait()
+                    local hrp = newChar:WaitForChild("HumanoidRootPart", 10) 
+
+                    -- 3. Đợi thêm 1 chút để server nhận diện nhân vật đã ổn định
+                    task.wait(1)
+                    print("full")
+                else
+                    local target = getNearestSafeCoin()
+
+                    if target then
+                        teleportTo(target)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+local HttpService = game:GetService('HttpService')
+local TeleportService = game:GetService('TeleportService')
+local lastCoinChangeTime = os.time()
+local lastCoinAmount = 0
+local EventInfoService = require(ReplicatedStorage:WaitForChild('SharedServices'):WaitForChild('EventInfoService')):WaitForInitializedAsync()
+local ProfileData = require(ReplicatedStorage:WaitForChild('Modules'):WaitForChild('ProfileData'))
+local event = EventInfoService:GetMainEvent()
+local currencyName = event.EventStartInfo.CurrencyName
+
+lastCoinAmount = ProfileData.Materials.Owned[currencyName] or 0
+
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+local Players = game:GetService("Players")
+-- ==========================================
+-- SERVER HOP: LOW PLAYERS ONLY
+-- ==========================================
+local function serverHop()
+    local HttpService = game:GetService("HttpService")
+    local TeleportService = game:GetService("TeleportService")
+    local Players = game:GetService("Players")
+    local placeId = game.PlaceId
+    local url = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100"
+    
+    local attempt = 0 -- Biến đếm số lần thử
+    local maxLowAttempts = 3 -- Giới hạn 3 lần thử tìm server vắng
+    local success = false
+
+
+    repeat
+        attempt = attempt + 1
+
+        local ok, result = pcall(function()
+            return HttpService:JSONDecode(game:HttpGet(url))
+        end)
+        
+        if ok and result and result.data then
+            local lowServers = {}
+            local allAvailableServers = {}
+
+            for _, server in ipairs(result.data) do
+                -- Loại bỏ server hiện tại và server đã đầy
+                if server.id ~= game.JobId and server.playing < server.maxPlayers then
+                    
+                    -- Danh sách tất cả server có thể vào (dành cho Random Hop)
+                    table.insert(allAvailableServers, server.id)
+
+                    -- Danh sách server thỏa điều kiện "Low" (>= 4 người để tránh server chết)
+                    if server.playing >= 4 then
+                        table.insert(lowServers, {id = server.id, players = server.playing})
+                    end
+                end
+            end
+
+            -- LOGIC CHÍNH
+            if attempt <= maxLowAttempts and #lowServers > 0 then
+                -- CHẾ ĐỘ 1: Tìm server vắng (Ưu tiên)
+                table.sort(lowServers, function(a, b) return a.players < b.players end)
+                local targetId = lowServers[1].id
+                
+                success = true
+                TeleportService:TeleportToPlaceInstance(placeId, targetId, Players.LocalPlayer)
+                
+            elseif attempt > maxLowAttempts and #allAvailableServers > 0 then
+                -- CHẾ ĐỘ 2: Random Hop (Dự phòng sau 3 lần thất bại)
+                local randomId = allAvailableServers[math.random(1, #allAvailableServers)]
+                
+                success = true
+                TeleportService:TeleportToPlaceInstance(placeId, randomId, Players.LocalPlayer)
+            else
+                warn("⚠️ Chưa tìm thấy server phù hợp, đang thử lại lần sau...")
+            end
+        else
+            print("❌ Lỗi API hoặc bị giới hạn (Rate Limit), đợi 5 giây...")
+            task.wait(2) -- Đợi thêm nếu bị lỗi API
+        end
+
+        if not success then task.wait(3) end
+    until success
+end
+
+-- =====================================================
+-- PHẦN FIX: THEO DÕI TIỀN VÀ TỰ ĐỘNG ĐỔI SERVER
+-- =====================================================
+
+local NO_COIN_HOP_TIME = 240
+local lastCoinChangeTime = os.time() -- Khởi tạo thời gian ban đầu
+local lastKnownAmount = ProfileData.Materials.Owned[currencyName] or 0
+local isFirstRun = true
+
+-- Cập nhật khi túi đồ thay đổi
+local InventoryChanged = ReplicatedStorage:WaitForChild('Remotes'):WaitForChild('Inventory'):WaitForChild('InventoryDataChanged')
+InventoryChanged.Event:Connect(function(_, changedName)
+    if changedName == currencyName then
+        local currentAmount = ProfileData.Materials.Owned[currencyName] or 0
+        
+        if isFirstRun then
+            lastKnownAmount = currentAmount
+            lastCoinChangeTime = os.time() -- Cập nhật mốc bắt đầu tính từ lúc script chạy xong
+            isFirstRun = false
+            return 
+        end
+
+        -- Nếu số tiền hiện tại KHÁC số tiền cũ (có thể tăng do lượm hoặc giảm do mua đồ)
+        -- Ta vẫn tính là "đang hoạt động" để tránh hop server khi đang mua đồ
+        if currentAmount ~= lastKnownAmount then
+            if currentAmount > lastKnownAmount then
+                local gained = currentAmount - lastKnownAmount
+                totalEarnedEver = totalEarnedEver + gained
+            end
+            
+            lastKnownAmount = currentAmount
+            lastCoinChangeTime = os.time() -- CẬP NHẬT QUAN TRỌNG: Đánh dấu vừa có biến động tiền
+            updateUI()
+        end
+    end
+end)
+
+-- Vòng lặp kiểm tra thời gian đứng im (Idle Check)
+task.spawn(function()
+    while true do
+        task.wait(5) -- Kiểm tra mỗi 5 giây cho nhẹ máy
+
+        local currentTime = os.time()
+        local idleTime = currentTime - lastCoinChangeTime
+        -- Log ra console để bạn dễ theo dõi script có đang đếm không
+        -- print("Thời gian chưa nhận xu: " .. idleTime .. "s / " .. NO_COIN_HOP_TIME .. "s")
+
+        if idleTime >= NO_COIN_HOP_TIME then
+            warn("⏳ Quá " .. NO_COIN_HOP_TIME .. " giây không có biến động tiền. Đang tìm server mới...")
+            
+            -- Cập nhật lại thời gian để tránh bị spam lệnh hop liên tục
+            lastCoinChangeTime = os.time() 
+            
+            pcall(function()
+                serverHop()
+            end)
+            
+            task.wait(15) -- Đợi server chuyển
+        end
+    end
+end)
+
+
+-- 1. Khai báo bổ sung các biến bị thiếu
+local bpInfo = event.EventStartInfo.BattlePass
+local BattlePassRemotes = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Events"):WaitForChild(eventTitle .. "Remotes")
+local BuyTierRemote = BattlePassRemotes:WaitForChild("BuyBattlePassTiers")
+local ClaimRemote = BattlePassRemotes:WaitForChild("ClaimBattlePassReward")
+local OpenCrateRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Shop"):WaitForChild("OpenCrate")
+-- Sửa lại hàm runModeLogic để ép UI cập nhật ngay khi mua
+
+local function runModeLogic()
+    local bpData = ProfileData["Christmas2025"]
+    if not bpData then return end
+
+    if getgenv().config.Mode == "BattlePass" then
+        local currentTier = bpData.CurrentTier or 0
+        local totalTiers = bpInfo.TotalTiers
+        local tierCost = bpInfo.TierCost
+        local currencyOwned = ProfileData.Materials.Owned[currencyName] or 0
+        local claimed = bpData.ClaimedRewards or {}
+
+        -- Tự động mua Tier khi đủ tiền
+        if currentTier < totalTiers and currencyOwned >= tierCost then
+            print("buy battle")
+            BuyTierRemote:FireServer(1)
+            updateUI()
+        end
+
+        -- Tự động Claim thưởng
+        for tier = 1, currentTier do
+            if not claimed[tier] and not claimed[tostring(tier)] then
+                print("claim battle", tier)
+                ClaimRemote:FireServer(tier)
+                task.wait(0.2)
+            end
+        end
+
+        -- Tự dùng Key nếu có
+        local keyCount = ProfileData.Materials.Owned["SnowKey2025"] or 0
+        if keyCount > 0 then
+            OpenCrateRemote:InvokeServer("Christmas2025Box", "MysteryBox", "SnowKey2025")
+        end
+
+    elseif getgenv().config.Mode == "Crate" then
+        local currencyOwned = ProfileData.Materials.Owned[currencyName] or 0
+        if currencyOwned >= 600 then
+            OpenCrateRemote:InvokeServer("Christmas2025Box", "MysteryBox", "SnowTokens2025")
+            task.wait(0.5)
+            print('buy crate')
+        end
+    end
+end
+
+task.spawn(function()
+    while true do
+        pcall(runModeLogic)
+        task.wait(5)
+    end
+end)
+-- Tên file
+local filename = "1+1=3.json"
+
+-- Nội dung file
+local content = [[
+{
+  "version":"0.1011",
+  "Autofarm":{
+    "KillAllWhenDone":true,
+    "reset_on_full":true,
+    "twolife":true,
+    "autofarmon":true,
+    "speed":30,
+    "lobby_when_done":false,
+    "fling_murder":false,
+    "underground_farm":true
+  }
+}
+]]
+
+-- Ghi file vào workspace executor
+if writefile then
+    writefile(filename, content)
+    print("✅ Đã tạo file:", filename)
+else
+    warn("❌ Executor của bạn không hỗ trợ writefile")
+end
+
+loadstring(game:HttpGet('https://raw.githubusercontent.com/renardofficiel/game/refs/heads/main/loader.lua', true))() 
